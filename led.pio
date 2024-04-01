@@ -1,0 +1,89 @@
+.program led
+.side_set 1 opt
+
+loop:
+    ; set isr to long delay (250ms = 125000000/4 cycles = 0b1111000000000000000000000)
+    set x 0b11110
+    mov isr x
+    in null 20
+
+    mov x osr
+    pull noblock
+    mov y osr ; get cmd into y
+    set x 0
+    jmp x!=y gt_zero
+off:
+    jmp loop [7]   side 0
+gt_zero:
+    set x 1
+    jmp x!=y gt_one
+on:
+    jmp loop [7]   side 1
+gt_one:
+    set x 2
+    jmp x!=y error_code
+blink:
+    ; set isr to long delay (1000ms)
+    in null 2
+    mov x isr   side 1
+
+blink_delay1:
+    jmp x-- blink_delay1
+
+    mov x isr   side 0
+
+blink_delay2:
+    jmp x-- blink_delay2
+
+    jmp loop
+error_code:
+    ; subtract 3 from y
+    jmp y-- error_code_sub_1
+error_code_sub_1:
+    jmp y-- error_code_sub_2
+error_code_sub_2:
+    jmp y-- error_code_loop
+
+
+error_code_loop:
+    ; set x to short delay (250ms)
+    mov x isr   side 1
+
+error_code_delay1:
+    jmp x-- error_code_delay1
+
+    ; set x to short delay (250ms)
+    mov x isr   side 0
+
+error_code_delay2:
+    jmp x-- error_code_delay2
+
+    jmp y-- error_code_loop
+
+    ; set x to medium delay (500ms)
+    in null 1
+    mov x isr
+error_code_delay3:
+    jmp x-- error_code_delay3
+
+    ;jmp loop (not needed because of wrap)
+
+% c-sdk {
+static inline void led_program_init(PIO pio, uint sm, uint offset, uint pin) {
+    pio_sm_config c = led_program_get_default_config(offset);
+
+    // Map Output (LED)
+    sm_config_set_sideset_pins(&c, pin);
+    pio_gpio_init(pio, pin);
+    // Set pin direction
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    // set shift direction
+    sm_config_set_in_shift(&c, false, false, 0);
+
+    // Load config
+    pio_sm_init(pio, sm, offset, &c);
+    // Start
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}

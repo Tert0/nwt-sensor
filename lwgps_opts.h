@@ -1,0 +1,1 @@
+#define LWGPS_CFG_STATUS 1

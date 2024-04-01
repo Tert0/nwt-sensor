@@ -1,0 +1,81 @@
+.program hcsr04
+
+/*
+1. Wait for request (any value in the input FIFO counts)
+2. Pulse for 10 us (1250 cycles = 0b10011100010) which will be rounded to 1280 (0b10100000000)
+    because this is simpler to implement
+3. Wait for Echo to become 1
+4. Set x to 2883584 (46.1ms) and decrement until x is 0 or echo pin is 0
+5. Send data through FIFO
+6. Loop
+*/
+
+
+entry:
+    pull block ; wait for request
+
+    ; set delay needed to trigger the sensor (10 us)
+    in null 32 ; clear the isr
+    set x 0b10100 ; write start of 1280 to x
+    in x 5 ; get the 5 bits from x
+    in null 6 ; shift isr by 6 bits (0b10100000000 = 1280)
+    mov x isr ; move 1280 to x
+
+    set pins 1 ; set the trigger pin of the sensor to 1
+
+trigger_delay:
+    jmp x-- trigger_delay ; loop until delay is over
+
+    set pins 0 ; set trigger pin of the sensor to 0
+
+    ; set x to 2883584
+    in null 32 ; clear isr
+    set x 0b10110 ; write first 5 bits to x
+    in x 5 ; get 5 bits from x
+    in null 17 ; shift isr by 17 bits
+    mov x isr ; move 2883584 into x
+    wait 1 pin 0 ; wait for the echo pin to rise
+countdown:
+    jmp x-- check_echo ; decrement x and check if loop should continue
+    set x 0
+    jmp end ; x is 0 and loop should end
+check_echo:
+    jmp pin countdown ; loop while pin is 1
+end:
+    mov isr x ; move x count into isr
+    push block ; push isr to the cpu
+
+    ; set x to 5000000 rounded to 4980736
+    set x 0b10011 ; set first 5 bits
+    in x 5 ; get 5 bits from x
+    in null 18 ; shift isr by 18 bits
+    mov x isr ; move 4980736 into x
+
+delay:
+    jmp x-- delay ; wait for 40ms
+
+    jmp entry ; start again
+
+% c-sdk {
+    static inline void hcsr04_program_init(PIO pio, uint sm, uint offset, uint trigger_pin, uint echo_pin) {
+        pio_sm_config c = hcsr04_program_get_default_config(offset);
+
+        // Map Output (Trigger)
+        sm_config_set_set_pins(&c, trigger_pin, 1);
+        pio_gpio_init(pio, trigger_pin);
+        // Set pin direction
+        pio_sm_set_consecutive_pindirs(pio, sm, trigger_pin, 1, true);
+
+        // Map Input (Echo)
+        sm_config_set_in_pins(&c, echo_pin);
+        sm_config_set_jmp_pin(&c, echo_pin);
+
+        // set shift direction
+        sm_config_set_in_shift(&c, false, false, 0);
+
+        // Load config
+        pio_sm_init(pio, sm, offset, &c);
+        // Start
+        pio_sm_set_enabled(pio, sm, true);
+    }
+%}
